@@ -1,0 +1,47 @@
+service: ai-agent-api
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  memorySize: 512
+  timeout: 30
+  environment:
+    NODE_ENV: ${self:provider.stage}
+  httpApi:
+    cors: true
+
+functions:
+  api:
+    handler: dist/lambda.handler
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+      - httpApi:
+          path: /
+          method: ANY
+
+plugins:
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    httpPort: 3000
+    host: 0.0.0.0
+
+package:
+  patterns:
+    - '!node_modules/.cache/**'
+    - '!test/**'
+    - '!src/**'
+    - '!*.md'
+    - '!.env*'
+    - '!.git/**'
+    - '!.vscode/**'
+    - '!coverage/**'
+    - '!dist/**'
+    - '!*.log'
