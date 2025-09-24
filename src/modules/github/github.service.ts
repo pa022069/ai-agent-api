@@ -103,7 +103,7 @@ export class GitHubService {
       // 只添加非空值
       // if (createIssueDto.body) {
       const markdownDescription = this.convertJiraToMarkdown(createIssueDto.issue.fields.description);
-      requestBody.body = `## Ticket Link: [${createIssueDto.issue.key}](${createIssueDto.issue.self})\n\n${markdownDescription}`;
+      requestBody.body = `## Ticket Link: [${createIssueDto.issue.key}](${createIssueDto.issue.self})\n\n${markdownDescription}\n\n @claude help me review the issue`;
       // }
 
       if (createIssueDto.assignees) {

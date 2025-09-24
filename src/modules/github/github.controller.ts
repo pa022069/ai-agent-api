@@ -7,12 +7,14 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { GitHubService } from './github.service';
 // import { CreateIssueDto } from './dto/create-issue.dto';
 import { GitHubIssueResponseDto } from './dto/github-issue-response.dto';
 
 @Controller('github')
 export class GitHubController {
+  private readonly logger = new Logger(GitHubController.name);
   constructor(private readonly githubService: GitHubService) { }
 
   /**
@@ -29,6 +31,11 @@ export class GitHubController {
     @Body() createIssueDto: any,
     // @Body() createIssueDto: CreateIssueDto,
   ): Promise<GitHubIssueResponseDto> {
+    this.logger.log('[Info] create github-issue: ', JSON.stringify({
+      owner,
+      repo,
+      body: createIssueDto,
+    }, null, 2));
     try {
       return await this.githubService.createIssue(owner, repo, createIssueDto);
     } catch (error) {
@@ -77,17 +84,5 @@ export class GitHubController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-  }
-
-  /**
-   * 測試端點
-   * @returns 測試回應
-   */
-  @Get('test')
-  test(): { message: string; timestamp: string } {
-    return {
-      message: 'GitHub module is working',
-      timestamp: new Date().toISOString(),
-    };
   }
 }
