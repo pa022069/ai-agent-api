@@ -1,6 +1,6 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CreateIssueDto } from './dto/create-issue.dto';
+// import { CreateIssueDto } from './dto/create-issue.dto';
 import { GitHubIssueResponseDto } from './dto/github-issue-response.dto';
 
 @Injectable()
@@ -17,6 +17,66 @@ export class GitHubService {
   }
 
   /**
+   * 將 Jira 描述內容轉換為 Markdown 格式
+   * @param jiraDescription Jira 原始描述內容
+   * @returns 轉換後的 Markdown 格式內容
+   */
+  private convertJiraToMarkdown(jiraDescription: string): string {
+    if (!jiraDescription) {
+      return '';
+    }
+
+    let markdown = jiraDescription;
+
+    // 處理換行符 - Jira 使用 \n，Markdown 需要雙換行
+    markdown = markdown.replace(/\n/g, '\n\n');
+
+    // 處理標題 - Jira 的 h1. h2. h3. 等轉換為 Markdown 標題
+    markdown = markdown.replace(/^h1\.\s*(.+)$/gm, '# $1');
+    markdown = markdown.replace(/^h2\.\s*(.+)$/gm, '## $1');
+    markdown = markdown.replace(/^h3\.\s*(.+)$/gm, '### $1');
+    markdown = markdown.replace(/^h4\.\s*(.+)$/gm, '#### $1');
+    markdown = markdown.replace(/^h5\.\s*(.+)$/gm, '##### $1');
+    markdown = markdown.replace(/^h6\.\s*(.+)$/gm, '###### $1');
+
+    // 處理粗體 - Jira 的 *text* 轉換為 Markdown 的 **text**
+    markdown = markdown.replace(/\*([^*]+)\*/g, '**$1**');
+
+    // 處理斜體 - Jira 的 _text_ 轉換為 Markdown 的 *text*
+    markdown = markdown.replace(/_([^_]+)_/g, '*$1*');
+
+    // 處理刪除線 - Jira 的 -text- 轉換為 Markdown 的 ~~text~~
+    markdown = markdown.replace(/-([^-]+)-/g, '~~$1~~');
+
+    // 處理代碼塊 - Jira 的 {code} 轉換為 Markdown 的 ```
+    markdown = markdown.replace(/\{code\}/g, '```');
+    markdown = markdown.replace(/\{code:([^}]+)\}/g, '```$1');
+
+    // 處理行內代碼 - Jira 的 {{text}} 轉換為 Markdown 的 `text`
+    markdown = markdown.replace(/\{\{([^}]+)\}\}/g, '`$1`');
+
+    // 處理無序列表 - Jira 的 * 轉換為 Markdown 的 -
+    markdown = markdown.replace(/^\*\s+/gm, '- ');
+
+    // 處理有序列表 - Jira 的 # 轉換為 Markdown 的 1.
+    markdown = markdown.replace(/^#\s+/gm, '1. ');
+
+    // 處理引用 - Jira 的 bq. 轉換為 Markdown 的 >
+    markdown = markdown.replace(/^bq\.\s*(.+)$/gm, '> $1');
+
+    // 處理連結 - Jira 的 [text|url] 轉換為 Markdown 的 [text](url)
+    markdown = markdown.replace(/\[([^|\]]+)\|([^\]]+)\]/g, '[$1]($2)');
+
+    // 處理圖片 - Jira 的 !url! 轉換為 Markdown 的 ![alt](url)
+    markdown = markdown.replace(/!([^!]+)!/g, '![]($1)');
+
+    // 清理多餘的換行
+    markdown = markdown.replace(/\n{3,}/g, '\n\n');
+
+    return markdown.trim();
+  }
+
+  /**
    * 建立 GitHub issue
    * @param owner 儲存庫擁有者
    * @param repo 儲存庫名稱
@@ -26,7 +86,7 @@ export class GitHubService {
   async createIssue(
     owner: string,
     repo: string,
-    createIssueDto: CreateIssueDto,
+    createIssueDto: any,
   ): Promise<GitHubIssueResponseDto> {
     try {
       const url = `${this.githubApiUrl}/repos/${owner}/${repo}/issues`;
@@ -37,13 +97,14 @@ export class GitHubService {
         labels?: string[];
         milestone?: string;
       } = {
-        title: createIssueDto.title,
+        title: `[${createIssueDto.issue.key}] ${createIssueDto.issue.fields.summary}`,
       };
 
       // 只添加非空值
-      if (createIssueDto.body) {
-        requestBody.body = createIssueDto.body;
-      }
+      // if (createIssueDto.body) {
+      const markdownDescription = this.convertJiraToMarkdown(createIssueDto.issue.fields.description);
+      requestBody.body = `## Ticket Link: [${createIssueDto.issue.key}](${createIssueDto.issue.self})\n\n${markdownDescription}`;
+      // }
 
       if (createIssueDto.assignees) {
         requestBody.assignees = createIssueDto.assignees.split(',');
@@ -56,11 +117,6 @@ export class GitHubService {
       if (createIssueDto.milestone) {
         requestBody.milestone = createIssueDto.milestone;
       }
-
-      console.log(
-        'requestBody to GitHub API:',
-        JSON.stringify(requestBody, null, 2),
-      );
 
       const response = await fetch(url, {
         method: 'POST',

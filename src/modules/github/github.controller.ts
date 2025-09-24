@@ -8,12 +8,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { GitHubService } from './github.service';
-import { CreateIssueDto } from './dto/create-issue.dto';
+// import { CreateIssueDto } from './dto/create-issue.dto';
 import { GitHubIssueResponseDto } from './dto/github-issue-response.dto';
 
 @Controller('github')
 export class GitHubController {
-  constructor(private readonly githubService: GitHubService) {}
+  constructor(private readonly githubService: GitHubService) { }
 
   /**
    * 建立 GitHub issue
@@ -26,7 +26,8 @@ export class GitHubController {
   async createIssue(
     @Param('owner') owner: string,
     @Param('repo') repo: string,
-    @Body() createIssueDto: CreateIssueDto,
+    @Body() createIssueDto: any,
+    // @Body() createIssueDto: CreateIssueDto,
   ): Promise<GitHubIssueResponseDto> {
     try {
       return await this.githubService.createIssue(owner, repo, createIssueDto);
