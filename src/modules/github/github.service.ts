@@ -198,4 +198,68 @@ export class GitHubService {
       );
     }
   }
+
+  /**
+   * 取得所有 GitHub issues
+   * @param owner 儲存庫擁有者
+   * @param repo 儲存庫名稱
+   * @param options 查詢選項 (state, labels, sort, direction, per_page, page)
+   * @returns issues 列表
+   */
+  async getAllIssues(
+    owner: string,
+    repo: string,
+    options?: {
+      state?: 'open' | 'closed' | 'all';
+      labels?: string;
+      sort?: 'created' | 'updated' | 'comments';
+      direction?: 'asc' | 'desc';
+      per_page?: number;
+      page?: number;
+    },
+  ): Promise<GitHubIssueResponseDto[]> {
+    try {
+      const url = new URL(`${this.githubApiUrl}/repos/${owner}/${repo}/issues`);
+
+      // 添加查詢參數
+      if (options) {
+        if (options.state) url.searchParams.set('state', options.state);
+        if (options.labels) url.searchParams.set('labels', options.labels);
+        if (options.sort) url.searchParams.set('sort', options.sort);
+        if (options.direction) url.searchParams.set('direction', options.direction);
+        if (options.per_page) url.searchParams.set('per_page', options.per_page.toString());
+        if (options.page) url.searchParams.set('page', options.page.toString());
+      }
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `token ${this.githubToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json()) as { message?: string };
+        throw new HttpException(
+          `GitHub API error: ${errorData.message || response.statusText}`,
+          response.status,
+        );
+      }
+
+      const issuesData = (await response.json()) as GitHubIssueResponseDto[];
+      return issuesData;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new HttpException(
+        `Failed to get GitHub issues: ${errorMessage}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
