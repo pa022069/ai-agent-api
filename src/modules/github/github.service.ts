@@ -8,7 +8,8 @@ export class GitHubService {
   private readonly githubApiUrl = 'https://api.github.com';
   private readonly githubToken: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService) {
     const token = this.configService.get<string>('GITHUB_TOKEN');
     if (!token) {
       throw new Error('GITHUB_TOKEN environment variable is required');
@@ -87,6 +88,7 @@ export class GitHubService {
     owner: string,
     repo: string,
     createIssueDto: any,
+    requestId?: string,
   ): Promise<GitHubIssueResponseDto> {
     try {
       const url = `${this.githubApiUrl}/repos/${owner}/${repo}/issues`;
@@ -103,7 +105,7 @@ export class GitHubService {
       // 只添加非空值
       // if (createIssueDto.body) {
       const markdownDescription = this.convertJiraToMarkdown(createIssueDto.issue.fields.description);
-      requestBody.body = `## Ticket Link: [${createIssueDto.issue.key}](${createIssueDto.issue.self})\n\n${markdownDescription}\n\n @claude help me review the issue`;
+      requestBody.body = `## Ticket Link: [${createIssueDto.issue.key}](${createIssueDto.issue.self})\n\n${markdownDescription}\n\n @analyze${requestId ? `: ${requestId}` : ''}`;
       // }
 
       if (createIssueDto.assignees) {
@@ -137,6 +139,7 @@ export class GitHubService {
       }
 
       const issueData = (await response.json()) as GitHubIssueResponseDto;
+
       return issueData;
     } catch (error) {
       if (error instanceof HttpException) {
@@ -147,117 +150,6 @@ export class GitHubService {
         error instanceof Error ? error.message : 'Unknown error';
       throw new HttpException(
         `Failed to create GitHub issue: ${errorMessage}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * 取得 GitHub issue
-   * @param owner 儲存庫擁有者
-   * @param repo 儲存庫名稱
-   * @param issueNumber issue 編號
-   * @returns issue 資訊
-   */
-  async getIssue(
-    owner: string,
-    repo: string,
-    issueNumber: number,
-  ): Promise<GitHubIssueResponseDto> {
-    try {
-      const url = `${this.githubApiUrl}/repos/${owner}/${repo}/issues/${issueNumber}`;
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `token ${this.githubToken}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = (await response.json()) as { message?: string };
-        throw new HttpException(
-          `GitHub API error: ${errorData.message || response.statusText}`,
-          response.status,
-        );
-      }
-
-      const issueData = (await response.json()) as GitHubIssueResponseDto;
-      return issueData;
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      throw new HttpException(
-        `Failed to get GitHub issue: ${errorMessage}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  /**
-   * 取得所有 GitHub issues
-   * @param owner 儲存庫擁有者
-   * @param repo 儲存庫名稱
-   * @param options 查詢選項 (state, labels, sort, direction, per_page, page)
-   * @returns issues 列表
-   */
-  async getAllIssues(
-    owner: string,
-    repo: string,
-    options?: {
-      state?: 'open' | 'closed' | 'all';
-      labels?: string;
-      sort?: 'created' | 'updated' | 'comments';
-      direction?: 'asc' | 'desc';
-      per_page?: number;
-      page?: number;
-    },
-  ): Promise<GitHubIssueResponseDto[]> {
-    try {
-      const url = new URL(`${this.githubApiUrl}/repos/${owner}/${repo}/issues`);
-
-      // 添加查詢參數
-      if (options) {
-        if (options.state) url.searchParams.set('state', options.state);
-        if (options.labels) url.searchParams.set('labels', options.labels);
-        if (options.sort) url.searchParams.set('sort', options.sort);
-        if (options.direction) url.searchParams.set('direction', options.direction);
-        if (options.per_page) url.searchParams.set('per_page', options.per_page.toString());
-        if (options.page) url.searchParams.set('page', options.page.toString());
-      }
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Authorization: `token ${this.githubToken}`,
-          Accept: 'application/vnd.github.v3+json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = (await response.json()) as { message?: string };
-        throw new HttpException(
-          `GitHub API error: ${errorData.message || response.statusText}`,
-          response.status,
-        );
-      }
-
-      const issuesData = (await response.json()) as GitHubIssueResponseDto[];
-      return issuesData;
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      throw new HttpException(
-        `Failed to get GitHub issues: ${errorMessage}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
