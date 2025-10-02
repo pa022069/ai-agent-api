@@ -26,6 +26,7 @@ export class AnalyzeService {
       ],
       repos: [
         { owner: 'Positive-LLC', repo: 'ai-agent-dev', priority: 1 },
+        { owner: 'Positive-LLC', repo: 'jira-analyze-dev', priority: 2 },
       ]
     }
   ];
@@ -37,10 +38,13 @@ export class AnalyzeService {
   ) { }
 
   async getAnalysisResult(analysisRequest: AnalysisResultFromClaudeDto): Promise<ExtractedAnalysisResultDto> {
+    const issueUrl = analysisRequest.issue_url;
+    const issue = await this.githubService.getIssueByUrl(issueUrl);
+    const requestId = this.getRequestIdFromBody(issue?.body || '');
     const extractedData = this.extractRelevanceData(analysisRequest.result);
     const findAnalysisRequest = await this.analysisRequestRepository.findOne({
       where: {
-        requestId: extractedData.analyzeRequestId,
+        requestId,
       },
     });
     if (findAnalysisRequest) {
@@ -50,6 +54,13 @@ export class AnalyzeService {
       }
       await this.analysisRequestRepository.save(findAnalysisRequest);
     }
+
+    const checkAllResult = findAnalysisRequest?.analysisResults.every(result => result.result !== '');
+    if (checkAllResult && findAnalysisRequest) {
+      console.log('all result is not empty', findAnalysisRequest.analysisResults);
+      await this.evaluateAndCloseLowScoreIssues(findAnalysisRequest);
+    }
+
     return {
       repository: analysisRequest.repository,
       issue_number: analysisRequest.issue_number,
@@ -145,14 +156,19 @@ export class AnalyzeService {
     }
   }
 
+  private getRequestIdFromBody(body: string): string {
+    const findRequestFromBody = body?.match(/@analyze: (.+)/);
+    const requestId = findRequestFromBody ? findRequestFromBody[1] : '';
+    return requestId;
+  }
+
   /**
    * 從分析結果中提取 Relevance Score 和 Related Files
    */
-  private extractRelevanceData(result: string): { relevanceScore: string; relatedFiles: string[]; analyzeRequestId: string } {
+  private extractRelevanceData(result: string): { relevanceScore: string; relatedFiles: string[] } {
     const lines = result.split('\n');
     let relevanceScore = '';
     const relatedFiles: string[] = [];
-    let analyzeRequestId = '';
 
     let inRelatedFilesSection = false;
 
@@ -173,15 +189,6 @@ export class AnalyzeService {
       // 提取 Related Files
       if (line.includes('Related Files') || line.includes('相關文件') || line.includes('Related Files：')) {
         inRelatedFilesSection = true;
-        continue;
-      }
-
-      // 提取 Analyze Request ID
-      if (line.includes('Analyze Request ID')) {
-        const match = line.match(/Analyze Request ID[：:]\s*(.+)/);
-        if (match && match[1]) {
-          analyzeRequestId = match[1].trim();
-        }
         continue;
       }
 
@@ -206,7 +213,6 @@ export class AnalyzeService {
     return {
       relevanceScore,
       relatedFiles,
-      analyzeRequestId,
     };
   }
 
@@ -537,6 +543,72 @@ ${analysisRequest.jiraTicket.description}
     };
   }
 
+
+  /**
+   * 評估分析結果並關閉低分 repo 的 issue（只保留最高分）
+   * @param analysisRequest 分析請求物件
+   */
+  private async evaluateAndCloseLowScoreIssues(analysisRequest: AnalysisRequest): Promise<void> {
+    try {
+      // 取得所有有效的評分結果
+      const validResults = analysisRequest.analysisResults.filter(result => {
+        const score = parseInt(result.result, 10);
+        return !isNaN(score);
+      });
+
+      if (validResults.length === 0) {
+        this.logger.log(`[Info] 沒有有效的評分結果，跳過關閉操作`);
+        return;
+      }
+
+      // 找出最高分
+      const maxScore = Math.max(...validResults.map(result => parseInt(result.result, 10)));
+
+      // 找出所有最高分的 repo（可能有多個同分）
+      const highestScoreRepos = validResults.filter(result =>
+        parseInt(result.result, 10) === maxScore
+      );
+
+      // 找出需要關閉的低分 repo（非最高分的）
+      const reposToClose = validResults.filter(result =>
+        parseInt(result.result, 10) < maxScore
+      );
+
+      this.logger.log(`[Info] 分析結果: 最高分=${maxScore}, 高分段repo=${highestScoreRepos.length}個, 需關閉repo=${reposToClose.length}個`);
+
+      // 記錄最高分的 repo
+      highestScoreRepos.forEach(repo => {
+        this.logger.log(`[Info] 保留高分段 repo: ${repo.repository} (${repo.result}分)`);
+        repo.result = `${repo.result} (保留)`;
+      });
+
+      // 關閉低分的 repo
+      if (reposToClose.length > 0) {
+        this.logger.log(`[Info] 開始關閉 ${reposToClose.length} 個低分 repo issue`);
+
+        for (const issue of reposToClose) {
+          try {
+            if (issue.issue_url) {
+              await this.githubService.closeIssueByUrl(issue.issue_url);
+              this.logger.log(`[Info] 成功關閉低分 issue: ${issue.repository} (${issue.result}分) - ${issue.issue_url}`);
+              issue.result = `${issue.result} (已關閉)`;
+            }
+          } catch (error) {
+            this.logger.error(`[Error] 關閉低分 issue 失敗: ${issue.repository} - ${issue.issue_url}`, error);
+            issue.result = `${issue.result} (關閉失敗)`;
+          }
+        }
+
+        await this.analysisRequestRepository.save(analysisRequest);
+        this.logger.log(`[Info] 低分 repo 關閉完成，已更新資料庫狀態`);
+      } else {
+        this.logger.log(`[Info] 所有 repo 都是最高分，無需關閉任何 issue`);
+        await this.analysisRequestRepository.save(analysisRequest);
+      }
+    } catch (error) {
+      this.logger.error(`[Error] 評估和關閉低分 issue 時發生錯誤:`, error);
+    }
+  }
 
   /**
    * 取得分析請求狀態

@@ -154,4 +154,103 @@ export class GitHubService {
       );
     }
   }
+
+  /**
+   * 根據 URL 取得 GitHub issue 內容
+   * @param url GitHub issue URL (支援完整 URL 或 API URL)
+   * @returns issue 內容
+   */
+  async getIssueByUrl(url: string): Promise<GitHubIssueResponseDto> {
+    // 如果傳入的是完整 GitHub issue URL，轉換為 API URL
+    let apiUrl = url;
+    const githubUrlMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/issues\/([0-9]+)/);
+    if (githubUrlMatch) {
+      const [, owner, repo, issueNumber] = githubUrlMatch;
+      apiUrl = `${this.githubApiUrl}/repos/${owner}/${repo}/issues/${issueNumber}`;
+      console.log(`Converting GitHub URL to API URL: ${url} -> ${apiUrl}`);
+    }
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `token ${this.githubToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json()) as { message?: string };
+        throw new HttpException(
+          `GitHub API error: ${errorData.message || response.statusText}`,
+          response.status,
+        );
+      }
+
+      const issueData = (await response.json()) as GitHubIssueResponseDto;
+      return issueData;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new HttpException(
+        `Failed to get GitHub issue: ${errorMessage}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * 根據 URL 關閉 GitHub issue (GitHub API 不支援刪除 issue，只能關閉)
+   * @param url GitHub issue URL (支援完整 URL 或 API URL)
+   * @returns void
+   */
+  async closeIssueByUrl(url: string): Promise<void> {
+    // 如果傳入的是完整 GitHub issue URL，轉換為 API URL
+    let apiUrl = url;
+    const githubUrlMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)\/issues\/([0-9]+)/);
+    if (githubUrlMatch) {
+      const [, owner, repo, issueNumber] = githubUrlMatch;
+      apiUrl = `${this.githubApiUrl}/repos/${owner}/${repo}/issues/${issueNumber}`;
+      console.log(`Converting GitHub URL to API URL: ${url} -> ${apiUrl}`);
+    }
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `token ${this.githubToken}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          state: 'closed'
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = (await response.json()) as { message?: string };
+        throw new HttpException(
+          `GitHub API error: ${errorData.message || response.statusText}`,
+          response.status,
+        );
+      }
+
+      console.log(`Successfully closed issue: ${apiUrl}`);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new HttpException(
+        `Failed to close GitHub issue: ${errorMessage}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

@@ -148,4 +148,57 @@ export class GitHubController {
       );
     }
   }
+
+  /**
+   * 根據 URL 取得 GitHub issue 內容
+   * @param issueUrl GitHub issue URL
+   * @returns issue 內容
+   */
+  @Get('issues')
+  @ApiOperation({
+    summary: '取得 GitHub issue',
+    description: '根據 issue URL 取得 GitHub issue 的詳細內容',
+  })
+  @ApiQuery({
+    name: 'url',
+    description: 'GitHub issue URL',
+    example: 'https://github.com/Positive-LLC/ai-agent-dev/issues/43',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '成功取得 issue 內容',
+    type: () => GitHubIssueResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Issue 不存在',
+  })
+  @ApiResponse({
+    status: 500,
+    description: '伺服器內部錯誤',
+  })
+  async getIssue(@Query('url') url: string): Promise<GitHubIssueResponseDto> {
+    if (!url) {
+      throw new HttpException(
+        'URL parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.log(`[Info] Getting GitHub issue: ${url}`);
+    try {
+      return await this.githubService.getIssueByUrl(url);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      throw new HttpException(
+        `Failed to get issue: ${errorMessage}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
