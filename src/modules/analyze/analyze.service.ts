@@ -5,6 +5,7 @@ import { GitHubService } from '../github/github.service';
 import { AnalysisRequestDto, AnalysisResultFromClaudeDto, ExtractedAnalysisResultDto } from './dto/analysis-request.dto';
 import { AnalysisResultDto, RepositoryAnalysisResult } from './dto/analysis-result.dto';
 import { AnalysisRequest } from '../../entities/analysis-request.entity';
+import { OpenRouterService } from './services/openrouter.service';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,11 +29,26 @@ export class AnalyzeService {
         { owner: 'Positive-LLC', repo: 'ai-agent-dev', priority: 1 },
         { owner: 'Positive-LLC', repo: 'jira-analyze-dev', priority: 2 },
       ]
+    },
+    {
+      team: 'Mobile Team',
+      keywords: [
+        { keyword: 'mobile', weight: 3 },
+        { keyword: 'ios', weight: 2 },
+        { keyword: 'android', weight: 2 },
+        { keyword: 'application', weight: 1 },
+        { keyword: 'client', weight: 1 }
+      ],
+      repos: [
+        { owner: 'Positive-LLC', repo: 'ai-agent-mobile-dev', priority: 1 },
+        { owner: 'Positive-LLC', repo: 'jira-analyze-mobile-dev', priority: 2 },
+      ]
     }
   ];
 
   constructor(
     private readonly githubService: GitHubService,
+    private readonly openRouterService: OpenRouterService,
     @InjectRepository(AnalysisRequest)
     private analysisRequestRepository: Repository<AnalysisRequest>,
   ) { }
@@ -78,9 +94,8 @@ export class AnalyzeService {
     const ticketSelf = issue.self;
 
     // 使用整合的智能映射找到最適合的團隊和 repo
-    const mappingResult = this.smartMapTicketToTeam(ticketSummary);
+    const mappingResult = await this.smartMapTicketToTeam(ticketSummary, ticketDescription);
     const requestId = `req_${uuidv4().replace(/-/g, '')}`;
-
     if (mappingResult.bestMatch) {
       const createAnalyzeRequest = await this.analysisRequestRepository.create({
         requestId,
@@ -486,9 +501,57 @@ ${analysisRequest.jiraTicket.description}
   /**
    * 智能映射 ticket 到團隊，返回最佳匹配和所有相關 repo
    * @param ticketSummary Jira ticket 的摘要
+   * @param ticketDescription Jira ticket 的描述（可選）
    * @returns 包含最佳匹配和所有 repo 的完整映射結果
    */
-  smartMapTicketToTeam(ticketSummary: string): {
+  async smartMapTicketToTeam(
+    ticketSummary: string,
+    ticketDescription: string = ''
+  ): Promise<{
+    bestMatch: { owner: string; repo: string; team: string; matchedKeywords: string[]; score: number } | null;
+    allTeamRepos: { owner: string; repo: string; priority: number }[];
+    team: string | null;
+  }> {
+    try {
+      // 1. 嘗試使用 AI 分析
+      const aiResult = await this.openRouterService.analyzeTeamMatch(
+        ticketSummary,
+        ticketDescription,
+        this.teamMapping
+      );
+
+      if (aiResult && aiResult.bestMatch) {
+        this.logger.log(`[Info] AI 分析成功: ${aiResult.bestMatch.team}`);
+        return {
+          bestMatch: {
+            owner: aiResult.bestMatch.owner,
+            repo: aiResult.bestMatch.repo,
+            team: aiResult.bestMatch.team,
+            matchedKeywords: ['ai-analyzed'],
+            score: aiResult.bestMatch.score
+          },
+          allTeamRepos: aiResult.allTeamRepos.map(repo => ({
+            owner: repo.owner,
+            repo: repo.repo,
+            priority: repo.priority
+          })),
+          team: aiResult.bestMatch.team
+        };
+      }
+    } catch (error) {
+      this.logger.warn(`[Warning] AI 分析失敗，回退到原邏輯: ${error.message}`);
+    }
+
+    // 2. 回退到原有的關鍵字匹配邏輯
+    return this.originalSmartMapTicketToTeam(ticketSummary);
+  }
+
+  /**
+   * 原有的關鍵字匹配邏輯（作為回退機制）
+   * @param ticketSummary Jira ticket 的摘要
+   * @returns 包含最佳匹配和所有 repo 的完整映射結果
+   */
+  private originalSmartMapTicketToTeam(ticketSummary: string): {
     bestMatch: { owner: string; repo: string; team: string; matchedKeywords: string[]; score: number } | null;
     allTeamRepos: { owner: string; repo: string; priority: number }[];
     team: string | null;
@@ -527,7 +590,7 @@ ${analysisRequest.jiraTicket.description}
     }
 
     if (bestMatch && matchedTeam) {
-      this.logger.log(`[Info] 智能映射結果: ${bestMatch.team} (${bestMatch.owner}/${bestMatch.repo}) - 匹配關鍵字: [${bestMatch.matchedKeywords.join(', ')}], 分數: ${bestMatch.score}`);
+      this.logger.log(`[Info] 原邏輯映射結果: ${bestMatch.team} (${bestMatch.owner}/${bestMatch.repo}) - 匹配關鍵字: [${bestMatch.matchedKeywords.join(', ')}], 分數: ${bestMatch.score}`);
       return {
         bestMatch,
         allTeamRepos: matchedTeam.repos,
@@ -535,7 +598,7 @@ ${analysisRequest.jiraTicket.description}
       };
     }
 
-    this.logger.warn(`[Warning] 智能映射未找到匹配的團隊: "${ticketSummary}"`);
+    this.logger.warn(`[Warning] 原邏輯映射未找到匹配的團隊: "${ticketSummary}"`);
     return {
       bestMatch: null,
       allTeamRepos: [],

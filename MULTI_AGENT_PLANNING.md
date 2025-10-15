@@ -1,259 +1,135 @@
-# Multi-Agent 架構規劃：智能團隊分配系統
+# AI 智能團隊分配規劃：簡化版
 
 ## 📋 項目概述
 
-將現有的 `smartMapTicketToTeam` 方法改造成基於 Claude AI 的 multi-agent 系統，實現更智能、更準確的 Jira ticket 到團隊的映射。
+將現有的 `smartMapTicketToTeam` 方法的核心邏輯抽出來交給 Claude AI 判斷，保持其他流程機制不變，實現更智能的 Jira ticket 到團隊的映射。
 
 ## 🎯 目標
 
-- 使用 Claude AI 深度理解 ticket 內容
-- 實現智能的團隊匹配算法
-- 提供可解釋的決策過程
-- 保持現有 API 兼容性
-- 添加錯誤處理和回退機制
+- 將 `smartMapTicketToTeam` 的關鍵字匹配邏輯替換為 AI 分析
+- 保持現有的返回格式和後續流程不變
+- 提供更準確的團隊匹配結果
+- 添加錯誤處理和回退到原邏輯的機制
 
-## 🏗️ 架構設計
+## 🏗️ 簡化架構設計
 
-### 整體架構流程
+### 核心改動點
 
 ```mermaid
 graph TD
-    A[Jira Ticket Input] --> B[Claude Analyzer Agent]
-    B --> C[Team Knowledge Base]
-    B --> D[Decision Agent]
-    C --> D
-    D --> E[Final Team Assignment]
-    E --> F[Repository Selection]
-    F --> G[Issue Creation]
+    A[Jira Ticket Input] --> B[Claude AI 分析]
+    B --> C[團隊匹配結果]
+    C --> D[現有流程繼續]
+    D --> E[Repository Selection]
+    E --> F[Issue Creation]
 
-    B --> H[Analysis Report]
-    D --> I[Decision Reasoning]
+    B --> G[回退機制]
+    G --> H[原關鍵字匹配邏輯]
+    H --> C
 ```
 
-### Agent 角色定義
+### 核心邏輯替換
 
-#### 1. Claude Analyzer Agent
-
-**職責：**
-
-- 深度分析 Jira ticket 內容
-- 提取技術領域、業務需求、複雜度等關鍵信息
-- 生成結構化的分析報告
-
-**輸入：**
-
-- Jira ticket summary
-- Jira ticket description
-- 可選的額外上下文信息
-
-**輸出：**
+**現有邏輯：**
 
 ```typescript
-interface ClaudeAnalysisResult {
-  technicalDomains: string[]; // 技術領域：['frontend', 'backend', 'mobile']
-  businessAreas: string[]; // 業務領域：['user-management', 'payment']
-  complexity: 'low' | 'medium' | 'high';
-  urgency: 'low' | 'medium' | 'high';
-  estimatedEffort: number; // 預估工作量（人天）
-  keywords: string[]; // 提取的關鍵詞
-  confidence: number; // 分析信心度 0-1
-  reasoning: string; // 分析推理過程
+// 現有的關鍵字匹配邏輯
+for (const teamInfo of this.teamMapping) {
+  for (const keywordInfo of teamInfo.keywords) {
+    if (summaryLower.includes(keywordInfo.keyword)) {
+      // 計算分數和匹配
+    }
+  }
 }
 ```
 
-#### 2. Decision Agent
-
-**職責：**
-
-- 基於 Claude 分析結果進行團隊匹配
-- 結合團隊知識庫進行決策
-- 提供決策解釋和置信度
-
-**輸入：**
-
-- Claude 分析結果
-- 團隊知識庫配置
-- 歷史分配記錄（可選）
-
-**輸出：**
+**新的 AI 邏輯：**
 
 ```typescript
-interface DecisionResult {
-  bestMatch: {
-    team: string;
-    owner: string;
-    repo: string;
-    score: number;
-    confidence: number;
-    reasoning: string;
-  } | null;
-  allTeamRepos: Array<{
-    owner: string;
-    repo: string;
-    priority: number;
-    score: number;
-    reasoning: string;
-  }>;
-  alternatives: Array<{
-    team: string;
-    score: number;
-    reasoning: string;
-  }>;
-}
+// 使用 Claude AI 進行智能分析
+const aiAnalysis = await this.claudeService.analyzeTicket(
+  ticketSummary,
+  ticketDescription,
+);
+const teamMatch = this.convertAIToTeamMapping(aiAnalysis);
 ```
 
-## 📁 文件結構規劃
+### 保持不變的部分
+
+- `smartMapTicketToTeam` 方法的輸入輸出格式
+- 返回的 `bestMatch` 和 `allTeamRepos` 結構
+- 後續的 issue 創建流程
+- 現有的團隊配置 `teamMapping`
+
+## 📁 簡化文件結構
 
 ```
 src/modules/analyze/
-├── agents/
-│   ├── claude-analyzer.agent.ts      # Claude 分析 Agent
-│   ├── decision.agent.ts             # 決策 Agent
-│   └── base.agent.ts                 # Agent 基類
-├── dto/
-│   ├── agent-analysis.dto.ts         # Agent 相關 DTO
-│   └── team-knowledge.dto.ts         # 團隊知識庫 DTO
 ├── services/
-│   ├── claude.service.ts             # Claude API 服務
-│   └── team-knowledge.service.ts     # 團隊知識庫服務
-├── config/
-│   └── team-knowledge.config.ts      # 團隊配置
-└── analyze.service.ts                # 主服務（整合所有 Agent）
+│   └── claude.service.ts             # Claude API 服務（新增）
+├── dto/
+│   └── claude-analysis.dto.ts        # Claude 分析結果 DTO（新增）
+└── analyze.service.ts                # 主服務（修改 smartMapTicketToTeam 方法）
 ```
 
-## 🔧 實現計劃
+### 新增文件說明
 
-### Phase 1: 基礎架構搭建
+1. **claude.service.ts** - 負責與 Claude API 交互
+2. **claude-analysis.dto.ts** - 定義 Claude 分析結果的數據結構
 
-1. **創建 Agent 基類和接口**
-   - 定義統一的 Agent 接口
-   - 實現基礎的錯誤處理和日誌記錄
-   - 添加配置管理
+## 🔧 簡化實現計劃
 
-2. **實現 Claude 服務**
-   - 集成 Claude API
-   - 實現 prompt 模板管理
-   - 添加重試機制和錯誤處理
+### Phase 1: 創建 Claude 服務（1-2天）
 
-3. **創建 DTO 定義**
-   - 定義所有 Agent 的輸入輸出格式
+1. **創建 Claude 服務**
+   - 實現 Claude API 集成
+   - 設計團隊匹配的 prompt
+   - 添加錯誤處理和重試機制
+
+2. **創建 DTO 定義**
+   - 定義 Claude 分析結果的數據結構
    - 添加驗證規則
-   - 創建類型安全的接口
 
-### Phase 2: Agent 實現
+### Phase 2: 修改 smartMapTicketToTeam（1天）
 
-1. **Claude Analyzer Agent**
-   - 實現 ticket 內容分析邏輯
-   - 設計 prompt 模板
-   - 添加結果解析和驗證
+1. **替換核心邏輯**
+   - 將關鍵字匹配邏輯替換為 AI 分析
+   - 保持現有的返回格式
+   - 添加回退到原邏輯的機制
 
-2. **Decision Agent**
-   - 實現團隊匹配算法
-   - 集成團隊知識庫
-   - 添加決策解釋生成
+2. **測試和驗證**
+   - 確保返回格式一致
+   - 測試回退機制
+   - 驗證後續流程正常
 
-3. **團隊知識庫服務**
-   - 擴展現有團隊配置
-   - 添加動態配置支持
-   - 實現配置驗證
+## 🎨 簡化 Claude Prompt 設計
 
-### Phase 3: 整合和優化
-
-1. **整合到 AnalyzeService**
-   - 替換現有的 `smartMapTicketToTeam` 方法
-   - 保持 API 兼容性
-   - 添加回退機制
-
-2. **錯誤處理和監控**
-   - 實現完整的錯誤處理
-   - 添加性能監控
-   - 創建詳細的日誌記錄
-
-3. **測試和驗證**
-   - 單元測試
-   - 集成測試
-   - 性能測試
-
-## 🎨 Claude Prompt 設計
-
-### Claude Analyzer Agent Prompt
+### 團隊匹配 Prompt
 
 ````markdown
-你是一個專業的軟體開發需求分析師。請分析以下 Jira ticket 並提供結構化的分析結果。
+你是一個團隊分配專家。請分析以下 Jira ticket 並選擇最適合的開發團隊。
 
 ## Ticket 信息
 
 **標題：** {summary}
 **描述：** {description}
 
+## 可用團隊配置
+
+{teamConfigurations}
+
 ## 分析要求
 
-請從以下維度進行分析：
+請根據 ticket 內容，從以下團隊中選擇最適合的：
 
-1. **技術領域識別**
-   - 前端開發 (frontend)
-   - 後端開發 (backend)
-   - 移動端開發 (mobile)
-   - 數據庫 (database)
-   - 基礎設施 (infrastructure)
-   - 其他 (other)
-
-2. **業務領域識別**
-   - 用戶管理 (user-management)
-   - 支付系統 (payment)
-   - 內容管理 (content-management)
-   - 報告分析 (reporting)
-   - 系統集成 (integration)
-   - 其他 (other)
-
-3. **複雜度評估**
-   - 低 (low): 簡單功能，1-3天
-   - 中 (medium): 中等功能，1-2週
-   - 高 (high): 複雜功能，2週以上
-
-4. **緊急程度**
-   - 低 (low): 可以延後
-   - 中 (medium): 正常優先級
-   - 高 (high): 需要優先處理
+1. **Desktop Team** - 負責桌面應用、PC/Mac 軟體開發
+   - 關鍵字：desktop, pc, windows, mac, application, client
+   - 儲存庫：Positive-LLC/ai-agent-dev, Positive-LLC/jira-analyze-dev
 
 ## 輸出格式
 
 請以 JSON 格式返回分析結果：
 
-```json
-{
-  "technicalDomains": ["frontend", "backend"],
-  "businessAreas": ["user-management"],
-  "complexity": "medium",
-  "urgency": "medium",
-  "estimatedEffort": 5,
-  "keywords": ["login", "authentication", "user"],
-  "confidence": 0.85,
-  "reasoning": "這是一個用戶登入功能需求，涉及前端界面和後端認證邏輯..."
-}
-```
-````
-
-````
-
-### Decision Agent Prompt
-
-```markdown
-你是一個團隊分配專家。基於需求分析結果，為以下 ticket 選擇最適合的開發團隊。
-
-## 需求分析結果
-{claudeAnalysisResult}
-
-## 可用團隊配置
-{teamConfigurations}
-
-## 分配標準
-1. **技術匹配度** (40%): 團隊技術棧與需求匹配程度
-2. **業務熟悉度** (30%): 團隊對相關業務領域的熟悉程度
-3. **工作負載** (20%): 團隊當前工作負載情況
-4. **歷史表現** (10%): 團隊處理類似需求的歷史表現
-
-## 輸出格式
 ```json
 {
   "bestMatch": {
@@ -262,7 +138,7 @@ src/modules/analyze/
     "repo": "ai-agent-dev",
     "score": 85,
     "confidence": 0.9,
-    "reasoning": "該團隊在前端和後端開發方面都有豐富經驗..."
+    "reasoning": "這個需求涉及桌面應用開發，Desktop Team 最適合..."
   },
   "allTeamRepos": [
     {
@@ -271,84 +147,134 @@ src/modules/analyze/
       "priority": 1,
       "score": 85,
       "reasoning": "主要匹配理由..."
-    }
-  ],
-  "alternatives": [
+    },
     {
-      "team": "Mobile Team",
-      "score": 65,
-      "reasoning": "雖然有移動端經驗，但主要需求是桌面端..."
+      "owner": "Positive-LLC",
+      "repo": "jira-analyze-dev",
+      "priority": 2,
+      "score": 70,
+      "reasoning": "次要匹配理由..."
     }
   ]
 }
+```
 ````
 
-```
+**注意：**
 
-## 🔄 遷移策略
+- 如果沒有明顯匹配的團隊，請返回 null
+- 分數範圍：0-100
+- 信心度範圍：0-1
+- 必須提供詳細的推理過程
 
-### 階段性遷移
-1. **第一階段**: 並行運行新舊系統，記錄結果差異
-2. **第二階段**: 逐步切換到新系統，保留舊系統作為回退
-3. **第三階段**: 完全切換到新系統，移除舊代碼
+````
+
+## 🔄 簡化遷移策略
+
+### 直接替換 + 回退機制
+1. **直接替換**: 將 `smartMapTicketToTeam` 的核心邏輯替換為 AI 分析
+2. **回退機制**: 如果 AI 分析失敗，自動回退到原有的關鍵字匹配邏輯
+3. **無縫切換**: 保持現有 API 和返回格式完全不變
 
 ### 兼容性保證
-- 保持現有 API 接口不變
-- 返回格式保持一致
-- 添加新的可選參數支持
+- 保持現有 API 接口完全不變
+- 返回格式完全一致
+- 後續流程無需任何修改
 
-## 📊 監控和指標
+## 📊 簡化監控
 
 ### 關鍵指標
-- **準確率**: 分配結果的準確性
-- **響應時間**: Agent 處理時間
-- **置信度**: 決策的置信度分佈
-- **錯誤率**: 系統錯誤和回退使用率
+- **AI 分析成功率**: AI 分析成功的比例
+- **回退使用率**: 回退到原邏輯的比例
+- **響應時間**: AI 分析的處理時間
+- **分配準確性**: 團隊分配的準確程度
 
 ### 日誌記錄
-- Agent 執行過程
-- 決策推理過程
+- AI 分析結果和推理過程
+- 回退觸發的原因
 - 錯誤和異常情況
-- 性能指標
 
-## 🚀 未來擴展
+## 📝 簡化實施時間表
 
-### 短期擴展
-- 支持更多團隊配置
-- 添加學習機制
-- 實現 A/B 測試
+| 階段 | 任務 | 預計時間 |
+|------|------|----------|
+| Phase 1 | 創建 Claude 服務和 DTO | 1-2天 |
+| Phase 2 | 修改 smartMapTicketToTeam | 1天 |
+| 測試 | 測試和驗證 | 0.5天 |
 
-### 長期願景
-- 自動化團隊配置優化
-- 集成更多外部數據源
-- 實現預測性分配
+**總計：2.5-3.5天**
 
-## 📝 實施時間表
+## 🔍 簡化風險評估
 
-| 階段 | 任務 | 預計時間 | 負責人 |
-|------|------|----------|--------|
-| Phase 1 | 基礎架構搭建 | 3-5天 | 開發團隊 |
-| Phase 2 | Agent 實現 | 5-7天 | 開發團隊 |
-| Phase 3 | 整合和優化 | 3-4天 | 開發團隊 |
-| 測試 | 測試和驗證 | 2-3天 | QA 團隊 |
-| 部署 | 生產部署 | 1-2天 | DevOps 團隊 |
-
-**總計：14-21天**
-
-## 🔍 風險評估
-
-### 技術風險
+### 主要風險
 - Claude API 可用性和延遲
-- 複雜 prompt 的穩定性
-- 系統性能影響
-
-### 業務風險
-- 分配準確性下降
-- 用戶接受度問題
-- 回退機制失效
+- AI 分析結果不穩定
 
 ### 緩解措施
-- 實現多層回退機制
-- 添加詳細監控和告警
-- 準備快速回滾方案
+- 實現自動回退機制
+- 添加超時處理
+- 保留原有邏輯作為備用
+
+## 💡 核心實現思路
+
+### 修改 smartMapTicketToTeam 方法
+
+```typescript
+async smartMapTicketToTeam(ticketSummary: string): Promise<{
+  bestMatch: { owner: string; repo: string; team: string; matchedKeywords: string[]; score: number } | null;
+  allTeamRepos: { owner: string; repo: string; priority: number }[];
+  team: string | null;
+}> {
+  try {
+    // 1. 嘗試使用 AI 分析
+    const aiResult = await this.claudeService.analyzeTeamMatch(ticketSummary, this.teamMapping);
+
+    if (aiResult && aiResult.bestMatch) {
+      this.logger.log(`[Info] AI 分析成功: ${aiResult.bestMatch.team}`);
+      return {
+        bestMatch: {
+          owner: aiResult.bestMatch.owner,
+          repo: aiResult.bestMatch.repo,
+          team: aiResult.bestMatch.team,
+          matchedKeywords: ['ai-analyzed'],
+          score: aiResult.bestMatch.score
+        },
+        allTeamRepos: aiResult.allTeamRepos,
+        team: aiResult.bestMatch.team
+      };
+    }
+  } catch (error) {
+    this.logger.warn(`[Warning] AI 分析失敗，回退到原邏輯: ${error.message}`);
+  }
+
+  // 2. 回退到原有的關鍵字匹配邏輯
+  return this.originalSmartMapTicketToTeam(ticketSummary);
+}
+
+// 保留原有的邏輯作為回退
+private originalSmartMapTicketToTeam(ticketSummary: string) {
+  // 現有的關鍵字匹配邏輯...
+}
+````
+
+### 新增 Claude 服務
+
+```typescript
+@Injectable()
+export class ClaudeService {
+  async analyzeTeamMatch(
+    ticketSummary: string,
+    teamMapping: any[],
+  ): Promise<any> {
+    // 調用 Claude API 進行分析
+    // 返回與現有格式兼容的結果
+  }
+}
 ```
+
+這樣的設計確保了：
+
+1. **最小改動**: 只修改一個方法的核心邏輯
+2. **完全兼容**: 返回格式與現有代碼完全一致
+3. **安全回退**: AI 失敗時自動使用原邏輯
+4. **快速實施**: 預計 2-3 天即可完成

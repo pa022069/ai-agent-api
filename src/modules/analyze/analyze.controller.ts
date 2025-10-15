@@ -20,12 +20,14 @@ export class AnalyzeController {
 
   @Post('result')
   async getAnalysisResult(@Body() analysisRequest: AnalysisResultFromClaudeDto) {
+    this.logger.log(`[Info] 開始分析結果: ${JSON.stringify(analysisRequest)}`);
     return await this.analyzeService.getAnalysisResult(analysisRequest);
   }
 
   @Post('ticket')
   @ApiOperation({ summary: '分析 Jira Ticket' })
   async getAnalysisJiraTicket(@Body() analysisRequest: any) {
+    this.logger.log(`[Info] 開始分析 Jira Ticket: ${JSON.stringify(analysisRequest)}`);
     return await this.analyzeService.getAnalysisJiraTicket(analysisRequest);
   }
 }

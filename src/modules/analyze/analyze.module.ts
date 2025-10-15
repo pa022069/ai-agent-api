@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AnalyzeController } from './analyze.controller';
 import { AnalyzeService } from './analyze.service';
+import { OpenRouterService } from './services/openrouter.service';
 import { GitHubModule } from '../github/github.module';
 import { AnalysisRequest } from '../../entities/analysis-request.entity';
 
@@ -11,7 +12,7 @@ import { AnalysisRequest } from '../../entities/analysis-request.entity';
     TypeOrmModule.forFeature([AnalysisRequest]),
   ],
   controllers: [AnalyzeController],
-  providers: [AnalyzeService],
+  providers: [AnalyzeService, OpenRouterService],
   exports: [AnalyzeService],
 })
 export class AnalyzeModule { }
