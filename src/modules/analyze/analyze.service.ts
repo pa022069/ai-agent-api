@@ -579,7 +579,7 @@ ${analysisRequest.jiraTicket.description}
       // 記錄最高分的 repo
       highestScoreRepos.forEach(repo => {
         this.logger.log(`[Info] 保留高分段 repo: ${repo.repository} (${repo.result}分)`);
-        repo.result = `${repo.result} (保留)`;
+        repo.result = `${repo.result}`;
       });
 
       // 關閉低分的 repo
@@ -591,11 +591,11 @@ ${analysisRequest.jiraTicket.description}
             if (issue.issue_url) {
               await this.githubService.closeIssueByUrl(issue.issue_url);
               this.logger.log(`[Info] 成功關閉低分 issue: ${issue.repository} (${issue.result}分) - ${issue.issue_url}`);
-              issue.result = `${issue.result} (已關閉)`;
+              issue.result = `${issue.result}`;
             }
           } catch (error) {
             this.logger.error(`[Error] 關閉低分 issue 失敗: ${issue.repository} - ${issue.issue_url}`, error);
-            issue.result = `${issue.result} (關閉失敗)`;
+            issue.result = `${issue.result}`;
           }
         }
 

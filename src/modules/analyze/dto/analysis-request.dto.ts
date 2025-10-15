@@ -31,7 +31,7 @@ export class RepositoryConfig {
 export class AnalysisResultFromClaudeDto {
   @ApiProperty({
     description: '分析結果',
-    example: '此儲存庫適合實作登入功能，已有相關基礎架構',
+    example: '85',
   })
   @IsString()
   @IsNotEmpty()

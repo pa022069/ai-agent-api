@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import {
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { AnalyzeService } from './analyze.service';
@@ -23,6 +24,7 @@ export class AnalyzeController {
   }
 
   @Post('ticket')
+  @ApiOperation({ summary: '分析 Jira Ticket' })
   async getAnalysisJiraTicket(@Body() analysisRequest: any) {
     return await this.analyzeService.getAnalysisJiraTicket(analysisRequest);
   }
