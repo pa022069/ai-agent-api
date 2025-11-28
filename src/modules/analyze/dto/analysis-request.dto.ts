@@ -59,6 +59,16 @@ export class AnalysisResultFromClaudeDto {
   @IsString()
   @IsOptional()
   issue_url: string;
+
+  @ApiProperty({
+    description: '相關文件列表',
+    example: ['.github/workflows/claude.yml', 'markdown-to-json.js'],
+    type: [String],
+    required: false,
+  })
+  @IsArray()
+  @IsOptional()
+  relatedFiles?: string[];
 }
 
 export class ExtractedAnalysisResultDto {

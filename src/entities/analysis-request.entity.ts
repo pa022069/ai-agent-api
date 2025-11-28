@@ -33,4 +33,15 @@ export class AnalysisRequest {
 
   @Column({ default: false })
   status: boolean;
+
+  @Column('json', { nullable: true })
+  metadata: {
+    evaluationResult?: any;
+    evaluationCompletedAt?: Date;
+    selectedRepository?: string;
+    closeResults?: any[];
+    decisionExecutedAt?: Date;
+    orchestrationStatus?: 'processing' | 'completed' | 'failed';
+    [key: string]: any;
+  };
 }

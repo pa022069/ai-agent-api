@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { GitHubService } from '../github/github.service';
 import { AnalysisRequestDto, AnalysisResultFromClaudeDto, ExtractedAnalysisResultDto } from './dto/analysis-request.dto';
 import { AnalysisResultDto, RepositoryAnalysisResult } from './dto/analysis-result.dto';
 import { AnalysisRequest } from '../../entities/analysis-request.entity';
 import { OpenRouterService } from './services/openrouter.service';
+import { AnalysisCollectorAgent } from './agents/analysis-collector.agent';
+import { RelevanceEvaluationAgent } from './agents/relevance-evaluation.agent';
+import { DecisionExecutorAgent } from './agents/decision-executor.agent';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -49,20 +53,142 @@ export class AnalyzeService {
   constructor(
     private readonly githubService: GitHubService,
     private readonly openRouterService: OpenRouterService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly analysisCollectorAgent: AnalysisCollectorAgent,
+    private readonly relevanceEvaluationAgent: RelevanceEvaluationAgent,
+    private readonly decisionExecutorAgent: DecisionExecutorAgent,
     @InjectRepository(AnalysisRequest)
     private analysisRequestRepository: Repository<AnalysisRequest>,
-  ) { }
+  ) {
+    this.setupEventHandlers();
+  }
+
+  /**
+   * 設定事件處理器來協調 Agents
+   */
+  private setupEventHandlers(): void {
+    // 監聽所有分析完成事件，觸發相關性評估
+    this.eventEmitter.on('all.analyses.completed', async (data) => {
+      const { requestId } = data;
+      this.logger.log(`[Info] 觸發相關性評估 - RequestId: ${requestId}`);
+
+      try {
+        const message = {
+          id: uuidv4(),
+          from: 'AnalyzeService',
+          to: 'RelevanceEvaluationAgent',
+          type: 'request' as const,
+          payload: {},
+          timestamp: new Date(),
+          requestId
+        };
+
+        await this.relevanceEvaluationAgent.process(message);
+      } catch (error) {
+        this.logger.error(`[Error] 觸發相關性評估失敗 - RequestId: ${requestId}:`, error);
+      }
+    });
+
+    // 監聽相關性評估完成事件，觸發決策執行
+    this.eventEmitter.on('relevance.evaluation.completed', async (data) => {
+      const { requestId, evaluationResult } = data;
+      this.logger.log(`[Info] 觸發決策執行 - RequestId: ${requestId}`);
+
+      try {
+        const message = {
+          id: uuidv4(),
+          from: 'AnalyzeService',
+          to: 'DecisionExecutorAgent',
+          type: 'request' as const,
+          payload: { evaluationResult },
+          timestamp: new Date(),
+          requestId
+        };
+
+        await this.decisionExecutorAgent.process(message);
+      } catch (error) {
+        this.logger.error(`[Error] 觸發決策執行失敗 - RequestId: ${requestId}:`, error);
+      }
+    });
+
+    // 監聽決策執行完成事件
+    this.eventEmitter.on('analysis.workflow.completed', (data) => {
+      const { requestId, executionResult } = data;
+      this.logger.log(`[Info] 分析工作流程完成 - RequestId: ${requestId}, 選中: ${executionResult.selectedRepository}`);
+    });
+
+    // 監聽工作流程失敗事件
+    this.eventEmitter.on('analysis.workflow.failed', (data) => {
+      const { requestId, error } = data;
+      this.logger.error(`[Error] 分析工作流程失敗 - RequestId: ${requestId}, Error: ${error}`);
+    });
+  }
 
   async getAnalysisResult(analysisRequest: AnalysisResultFromClaudeDto): Promise<ExtractedAnalysisResultDto> {
     const issueUrl = analysisRequest.issue_url;
     const issue = await this.githubService.getIssueByUrl(issueUrl);
     const requestId = this.getRequestIdFromBody(issue?.body || '');
     const extractedData = this.extractRelevanceData(analysisRequest.result);
+
+    this.logger.log(`[Info] 收到分析結果 - RequestId: ${requestId}, Repo: ${analysisRequest.repository}, Score: ${extractedData.relevanceScore}`);
+
+    try {
+      // 使用 Agent Orchestration 處理分析結果
+      const message = {
+        id: uuidv4(),
+        from: 'AnalyzeService',
+        to: 'AnalysisCollectorAgent',
+        type: 'request' as const,
+        payload: {
+          repository: analysisRequest.repository,
+          relevanceScore: extractedData.relevanceScore,
+          relatedFiles: extractedData.relatedFiles,
+          issue_url: `https://github.com/${analysisRequest.repository}/issues/${analysisRequest.issue_number}`,
+        },
+        timestamp: new Date(),
+        requestId
+      };
+
+      // 發送給 AnalysisCollectorAgent 處理
+      const result = await this.analysisCollectorAgent.process(message);
+
+      if (!result.payload.success) {
+        this.logger.error(`[Error] AnalysisCollectorAgent 處理失敗: ${result.payload.error}`);
+        throw new Error(result.payload.error);
+      }
+
+      this.logger.log(`[Info] 分析結果處理完成 - RequestId: ${requestId}, AllCompleted: ${result.payload.isAllCompleted}`);
+
+      return {
+        repository: analysisRequest.repository,
+        issue_number: analysisRequest.issue_number,
+        relevanceScore: extractedData.relevanceScore,
+        relatedFiles: extractedData.relatedFiles,
+        issue_url: `https://github.com/${analysisRequest.repository}/issues/${analysisRequest.issue_number}`,
+      };
+
+    } catch (error) {
+      this.logger.error(`[Error] 處理分析結果失敗 - RequestId: ${requestId}:`, error);
+
+      // 回退到原有邏輯（如果 Agent Orchestration 失敗）
+      return this.fallbackAnalysisResult(analysisRequest, extractedData, requestId);
+    }
+  }
+
+  /**
+   * 回退處理邏輯（當 Agent Orchestration 失敗時使用）
+   */
+  private async fallbackAnalysisResult(
+    analysisRequest: AnalysisResultFromClaudeDto,
+    extractedData: { relevanceScore: string; relatedFiles: string[] },
+    requestId: string
+  ): Promise<ExtractedAnalysisResultDto> {
+    this.logger.warn(`[Warning] 使用回退邏輯處理分析結果 - RequestId: ${requestId}`);
+
     const findAnalysisRequest = await this.analysisRequestRepository.findOne({
-      where: {
-        requestId,
-      },
+      where: { requestId },
     });
+
     if (findAnalysisRequest) {
       const findRepo = findAnalysisRequest.analysisResults.find(result => result.repository === analysisRequest.repository);
       if (findRepo) {
